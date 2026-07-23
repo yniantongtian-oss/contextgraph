@@ -25,7 +25,7 @@ def verify_token(token):
         encoding="utf-8",
     )
     (project / "db.py").write_text(
-        '''
+        """
 import sqlite3
 
 
@@ -37,7 +37,7 @@ def fetch_user(user_id):
     connection = get_db_connection()
     connection.close()
     return {"id": user_id, "name": "demo"}
-'''.strip(),
+""".strip(),
         encoding="utf-8",
     )
     return project
