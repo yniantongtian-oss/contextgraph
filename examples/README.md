@@ -1,18 +1,12 @@
 # Examples
 
-This directory contains practical examples of using ContextGraph.
+`backend_demo.py` creates a temporary Python project, indexes it, and retrieves authentication-related source context.
 
-## backend_demo.py
-
-A minimal but realistic backend-style project (auth + db + main) showing:
-- Graph construction
-- Keyword + importance scoring
-- Optional semantic search
-
-Run it with:
+Run from an editable development install:
 
 ```bash
+python -m pip install -e .
 python examples/backend_demo.py
 ```
 
-You can replace the temp project with any real codebase (your own backend, data pipeline, CLI tool, etc.).
+Semantic retrieval is intentionally disabled in the default example so it runs without model downloads.
