@@ -130,7 +130,7 @@ def prompt(
 {task}
 
 ## Retrieved code context
-{result.get('context', '')}
+{result.get("context", "")}
 
 ## Requirements
 - Ground the answer in the retrieved code.
