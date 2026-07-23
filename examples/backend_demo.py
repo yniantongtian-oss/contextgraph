@@ -1,64 +1,60 @@
-# Example: Using ContextGraph on a small backend-like project
-# This demonstrates improved query + semantic search
+from __future__ import annotations
+
+import tempfile
+from pathlib import Path
 
 from contextgraph import CodeContextGraph
 
-import tempfile
- import os
- from pathlib import Path
 
-# Create a tiny demo project in temp dir
-def create_demo_project():
-    tmp = tempfile.mkdtemp(prefix="cg_demo_")
-    (Path(tmp) / "auth.py").write_text('''
+def create_demo_project() -> Path:
+    """Create a disposable backend-style Python project."""
+    project = Path(tempfile.mkdtemp(prefix="contextgraph_demo_"))
+    (project / "auth.py").write_text(
+        '''
 def login_user(username, password):
-    """Authenticate user and return token."""
+    """Authenticate a user and return a token."""
     if not username or not password:
         raise ValueError("Missing credentials")
-    # TODO: real implementation
-    return {"token": "fake.jwt.token", "user_id": 42}
+    return {"token": "demo.jwt.token", "user_id": 42}
+
 
 def verify_token(token):
-    """Check if token is valid."""
-    return token.startswith("fake")
-''')
-
-    (Path(tmp) / "db.py").write_text('''
+    """Return whether a demo token is valid."""
+    return token.startswith("demo")
+'''.strip(),
+        encoding="utf-8",
+    )
+    (project / "db.py").write_text(
+        '''
 import sqlite3
 
+
 def get_db_connection():
-    """Return database connection with pooling hints."""
-    conn = sqlite3.connect(":memory:")
-    return conn
+    return sqlite3.connect(":memory:")
+
 
 def fetch_user(user_id):
-    conn = get_db_connection()
-    # placeholder
+    connection = get_db_connection()
+    connection.close()
     return {"id": user_id, "name": "demo"}
-''')
+'''.strip(),
+        encoding="utf-8",
+    )
+    return project
 
-    (Path(tmp) / "main.py").write_text('''
-from auth import login_user, verify_token
+
+def main() -> None:
+    project = create_demo_project()
+    print(f"Demo project: {project}")
+
+    graph = CodeContextGraph()
+    graph.load_project(project)
+    graph.build_graph()
+
+    result = graph.query_context("login authentication", max_tokens=300)
+    print("\n=== Retrieved context ===")
+    print(result["context"])
+
 
 if __name__ == "__main__":
-    token = login_user("admin", "secret")
-    print(verify_token(token["token"]))
-''')
-    return tmp
-
-if __name__ == "__main__":
-    project_path = create_demo_project()
-    print(f"Demo project created at: {project_path}")
-
-    cg = CodeContextGraph()
-    cg.load_project(project_path)
-    cg.build_graph()
-
-    print("\n=== Basic query ===")
-    res1 = cg.query_context("login or authentication", max_tokens=800)
-    print(res1["context"][:800])
-
-    print("\n=== With semantic (if available) ===")
-    if cg.enable_semantic_search():
-        res2 = cg.query_context("user login flow", max_tokens=800, use_semantic=True)
-        print(res2["context"][:800])
+    main()
