@@ -1,131 +1,148 @@
 # ContextGraph
 
-[![PyPI](https://img.shields.io/pypi/v/contextgraph?color=blue)](https://pypi.org/project/contextgraph/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![GitHub stars](https://img.shields.io/github/stars/yniantongtian-oss/contextgraph?style=social)](https://github.com/yniantongtian-oss/contextgraph)
+[![CI](https://github.com/yniantongtian-oss/contextgraph/actions/workflows/ci.yml/badge.svg)](https://github.com/yniantongtian-oss/contextgraph/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 
-**Build and query intelligent code graphs for better LLM and AI agent context retrieval.**
+**Python-first code graph retrieval for focused LLM and coding-agent context.**
 
-ContextGraph turns codebases into structured, queryable graphs so that AI coding assistants and agents can retrieve only the most relevant context — dramatically improving accuracy while reducing token waste.
+ContextGraph scans a repository, extracts Python files, classes, functions, methods, imports, and resolvable call relationships, then ranks source snippets against a query under an approximate token budget.
 
-## Why This Matters in 2026
+> Project status: early alpha. The public API and graph schema may change before 1.0.
 
-AI coding tools (Claude Code, Cursor, Continue.dev, local models) are exploding in popularity. The biggest remaining bottleneck is **context quality**:
+## What works today
 
-- Feeding entire large repositories wastes tokens and introduces noise
-- Models often miss critical related functions or files
-- Developers waste time manually curating context
-
-ContextGraph solves this by building a **code intelligence graph** and providing smart, scored, token-aware retrieval.
-
-It is designed as infrastructure that works with any LLM or agent framework.
-
-## Key Features
-
-- **Graph Construction**: Automatically extracts functions, classes, imports, and call relationships
-- **Smart Retrieval**: Keyword + graph importance + optional semantic similarity scoring
-- **Token Budget Aware**: Respects your `max_tokens` limit with intelligent truncation
-- **Semantic Search** (optional): Powered by `sentence-transformers` — runs fully locally (great with RTX GPUs)
-- **CLI + Python API**: Easy to use in terminal or integrate into agents
-- **Local-first**: No cloud, no data leaving your machine
-- **Extensible**: Designed for future multi-language (C/C++, JS/TS) and framework-aware support
+- Python AST indexing for files, classes, functions, methods, imports, and local call edges
+- Hybrid ranking using symbol names, file paths, source text, graph degree, and optional local embeddings
+- Token-budgeted source-context output
+- CLI commands for scanning, querying, and prompt generation
+- A small Python API with no required cloud service
+- CI across Python 3.10 through 3.13
 
 ## Installation
 
-```bash
-pip install contextgraph
-```
-
-With semantic search support:
+Install the current development version from GitHub:
 
 ```bash
-pip install "contextgraph[semantic]"
+python -m pip install "git+https://github.com/yniantongtian-oss/contextgraph.git"
 ```
 
-## Quick Start
-
-### 1. Scan a project
+The planned PyPI distribution name is `contextgraph-ai` because the `contextgraph` distribution name is already used by an unrelated project. After the first release:
 
 ```bash
-contextgraph scan ./my-backend-project
+python -m pip install contextgraph-ai
 ```
 
-### 2. Query for relevant context
+Optional semantic retrieval:
 
 ```bash
-contextgraph query "user authentication or JWT handling" --budget 1800 --project ./my-backend-project
+python -m pip install "contextgraph-ai[semantic]"
 ```
 
-### 3. Generate optimized prompt for any LLM
+The distribution name is `contextgraph-ai`; the Python import remains:
+
+```python
+from contextgraph import CodeContextGraph
+```
+
+## CLI quick start
+
+Scan a Python project:
 
 ```bash
-contextgraph prompt "Add rate limiting to the login endpoint" --max-tokens 1600
+contextgraph scan ./my-project
 ```
 
-The generated prompt can be copied directly into Claude, GPT-5.6, local models (via Ollama, vLLM, etc.), or Cursor/Continue.dev.
+Retrieve context without downloading an embedding model:
 
-## Python API Example
+```bash
+contextgraph query "authentication token validation" \
+  --project ./my-project \
+  --budget 1200
+```
+
+Use optional local semantic retrieval:
+
+```bash
+contextgraph query "where is user identity verified" \
+  --project ./my-project \
+  --budget 1200 \
+  --semantic
+```
+
+Generate a prompt containing the retrieved source:
+
+```bash
+contextgraph prompt "Add rate limiting to login" \
+  --project ./my-project \
+  --max-tokens 1600
+```
+
+## Python API
 
 ```python
 from contextgraph import CodeContextGraph
 
 cg = CodeContextGraph()
-cg.load_project("./large-codebase")
+cg.load_project("./my-project")
 cg.build_graph()
 
-# Enable semantic search (recommended)
-cg.enable_semantic_search()   # loads small local model
-
-results = cg.query_context(
-    query="database connection pooling or async session handling",
-    max_tokens=2000,
-    use_semantic=True
+result = cg.query_context(
+    "authentication token validation",
+    max_tokens=1200,
 )
 
-print(results["context"])          # Ready-to-use context
-print(results["scores"])           # Relevance scores
-print(results.get("graph_summary"))
+print(result["context"])
+print(result["relevant_files"])
+print(result["scores"])
 ```
 
-## How the Query Algorithm Works
+## How it works
 
-1. **Keyword matching** on function/file names and content
-2. **Graph importance** (node degree / centrality)
-3. **Semantic similarity** (optional, using local embeddings)
-4. **Token budget pruning** with smart truncation
+```mermaid
+flowchart LR
+    A[Source files] --> B[Python AST index]
+    B --> C[Directed code graph]
+    D[User query] --> E[Lexical and optional semantic scoring]
+    C --> E
+    E --> F[Token-budgeted source context]
+```
 
-This hybrid approach gives much better results than pure keyword or pure embedding search.
+The graph uses stable repository-relative identifiers such as:
 
-## Examples
+- `file:src/service.py`
+- `symbol:src/service.py::UserService.login`
+- `module:sqlite3`
 
-See the `examples/` directory for:
-- Small realistic backend project demo
-- Data processing script example
-- Integration with local LLM workflows
+Call edges are resolved when a target symbol can be identified unambiguously. Dynamic dispatch, runtime imports, decorators, and reflection are not fully modeled.
 
-## Development & Contributing
+## Development
 
 ```bash
 git clone https://github.com/yniantongtian-oss/contextgraph.git
 cd contextgraph
-pip install -e ".[dev,semantic]"
+python -m pip install -e ".[dev]"
+ruff check src tests examples
+ruff format --check src tests examples
+pytest --cov=contextgraph
+python -m build
 ```
 
-We welcome contributions especially in:
-- Better multi-language parsing (tree-sitter)
-- Framework-specific heuristics
-- Benchmarks and real-world usage reports
-- Integration examples with popular coding agents
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/architecture.md](docs/architecture.md) for repository conventions and design details.
 
 ## Roadmap
 
-- [ ] Stronger multi-language support (C/C++, TypeScript)
-- [ ] Framework-aware context boosting
-- [ ] Persistent graph storage
-- [ ] VS Code / Continue.dev extension hooks
-- [ ] Public benchmarks on popular open-source projects
+- Persistent graph snapshots and incremental indexing
+- Better import and cross-file call resolution
+- Tree-sitter parsers for TypeScript, JavaScript, C, and C++
+- Context expansion through callers, callees, and neighboring symbols
+- Reproducible retrieval benchmarks
+- MCP and editor integrations
+
+## Security
+
+ContextGraph reads local source files. Review [SECURITY.md](SECURITY.md) before using it on untrusted repositories or enabling optional model downloads.
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).
