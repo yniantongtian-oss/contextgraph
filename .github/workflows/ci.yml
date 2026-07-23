@@ -32,7 +32,6 @@ jobs:
           set +e
           ruff check src tests examples --output-format=concise 2>&1 | tee ruff-report.txt
           status=${PIPESTATUS[0]}
-          echo "RUFF_EXIT_CODE=$status" >> "$GITHUB_ENV"
           exit "$status"
       - name: Upload lint report
         if: always()
@@ -42,7 +41,18 @@ jobs:
           path: ruff-report.txt
           if-no-files-found: ignore
       - name: Format check
-        run: ruff format --check src tests examples
+        shell: bash
+        run: |
+          ruff format src tests examples
+          git diff -- src tests examples > ruff-format.diff
+          test ! -s ruff-format.diff
+      - name: Upload format report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ruff-format-report
+          path: ruff-format.diff
+          if-no-files-found: ignore
       - name: Build and validate package
         run: |
           python -m build
