@@ -201,8 +201,7 @@ class CodeContextGraph:
 
     def _is_excluded(self, relative_path: Path) -> bool:
         return any(
-            part.startswith(".") or part in self.excluded_dirs
-            for part in relative_path.parts
+            part.startswith(".") or part in self.excluded_dirs for part in relative_path.parts
         )
 
     @staticmethod
@@ -240,9 +239,7 @@ class CodeContextGraph:
             try:
                 tree = ast.parse(metadata["content"], filename=relative_path)
             except SyntaxError as exc:
-                self.parse_errors.append(
-                    f"{relative_path}:{exc.lineno or 1}: {exc.msg}"
-                )
+                self.parse_errors.append(f"{relative_path}:{exc.lineno or 1}: {exc.msg}")
                 continue
 
             visitor = _PythonIndexVisitor(metadata["content"])
@@ -372,19 +369,11 @@ class CodeContextGraph:
         if query.lower().strip() and query.lower().strip() in source_lower:
             score += 1.0
 
-        if (
-            query_embedding is not None
-            and np is not None
-            and node_id in self.embeddings
-        ):
+        if query_embedding is not None and np is not None and node_id in self.embeddings:
             node_embedding = self.embeddings[node_id]
-            denominator = float(
-                np.linalg.norm(query_embedding) * np.linalg.norm(node_embedding)
-            )
+            denominator = float(np.linalg.norm(query_embedding) * np.linalg.norm(node_embedding))
             if denominator > 0:
-                similarity = float(
-                    np.dot(query_embedding, node_embedding) / denominator
-                )
+                similarity = float(np.dot(query_embedding, node_embedding) / denominator)
                 score += max(similarity, 0.0) * 2.5
 
         degree = self.graph.degree(node_id)
@@ -400,10 +389,7 @@ class CodeContextGraph:
             header = f"# File: {path}\n"
         else:
             qualname = data.get("qualname", data.get("name", node_id))
-            header = (
-                f"# {node_type.title()}: {qualname} "
-                f"({path}:{data.get('lineno', 1)})\n"
-            )
+            header = f"# {node_type.title()}: {qualname} ({path}:{data.get('lineno', 1)})\n"
         return header + source + "\n", str(path) if path else None
 
     def query_context(
