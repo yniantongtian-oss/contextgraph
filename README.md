@@ -1,106 +1,131 @@
 # ContextGraph
 
+[![PyPI](https://img.shields.io/pypi/v/contextgraph?color=blue)](https://pypi.org/project/contextgraph/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![GitHub stars](https://img.shields.io/github/stars/yniantongtian-oss/contextgraph?style=social)](https://github.com/yniantongtian-oss/contextgraph)
 
 **Build and query intelligent code graphs for better LLM and AI agent context retrieval.**
 
-ContextGraph helps AI coding assistants and agents understand large codebases more effectively by constructing a structured graph of code relationships and retrieving only the most relevant context within token budgets.
+ContextGraph turns codebases into structured, queryable graphs so that AI coding assistants and agents can retrieve only the most relevant context — dramatically improving accuracy while reducing token waste.
 
-## Why ContextGraph Now?
+## Why This Matters in 2026
 
-In 2026, the fastest-growing area on GitHub is AI coding tools and agent infrastructure. Projects focused on code intelligence, context management, and making LLMs actually useful on real-world codebases are gaining massive traction.
+AI coding tools (Claude Code, Cursor, Continue.dev, local models) are exploding in popularity. The biggest remaining bottleneck is **context quality**:
 
-Current pain points:
-- Token waste and context pollution when feeding entire codebases to models
-- AI coding assistants (Claude, Cursor, Continue.dev, local models) often retrieve irrelevant code
-- Lack of structured, queryable representation of code relationships
+- Feeding entire large repositories wastes tokens and introduces noise
+- Models often miss critical related functions or files
+- Developers waste time manually curating context
 
-ContextGraph solves this by turning code into a queryable graph and providing smart, token-aware context extraction.
+ContextGraph solves this by building a **code intelligence graph** and providing smart, scored, token-aware retrieval.
+
+It is designed as infrastructure that works with any LLM or agent framework.
 
 ## Key Features
 
-- Multi-language support (Python first, extensible to C/C++, JS/TS)
-- Automatic code graph construction (imports, calls, definitions, dependencies)
-- Intelligent context retrieval with token budget control
-- Graph summary generation for better LLM understanding
-- Clean CLI + Python API
-- Local-first, no cloud dependency
-- Ready for semantic enhancement with local embeddings
+- **Graph Construction**: Automatically extracts functions, classes, imports, and call relationships
+- **Smart Retrieval**: Keyword + graph importance + optional semantic similarity scoring
+- **Token Budget Aware**: Respects your `max_tokens` limit with intelligent truncation
+- **Semantic Search** (optional): Powered by `sentence-transformers` — runs fully locally (great with RTX GPUs)
+- **CLI + Python API**: Easy to use in terminal or integrate into agents
+- **Local-first**: No cloud, no data leaving your machine
+- **Extensible**: Designed for future multi-language (C/C++, JS/TS) and framework-aware support
 
-## Quick Start
-
-### Installation
+## Installation
 
 ```bash
 pip install contextgraph
 ```
 
-For development:
+With semantic search support:
 
 ```bash
-git clone https://github.com/yniantongtian-oss/contextgraph.git
-cd contextgraph
-pip install -e ".[dev]"
+pip install "contextgraph[semantic]"
 ```
 
-### CLI Usage
+## Quick Start
+
+### 1. Scan a project
 
 ```bash
-# Scan a project and build the graph
-contextgraph scan ./my-project --output graph.json
-
-# Query for relevant context
-contextgraph query "authentication or database connection logic" --budget 2000 --project ./my-project
-
-# Generate optimized prompt for LLM
-contextgraph prompt "Refactor the user service for better error handling" --max-tokens 1500
+contextgraph scan ./my-backend-project
 ```
 
-### Python API
+### 2. Query for relevant context
+
+```bash
+contextgraph query "user authentication or JWT handling" --budget 1800 --project ./my-backend-project
+```
+
+### 3. Generate optimized prompt for any LLM
+
+```bash
+contextgraph prompt "Add rate limiting to the login endpoint" --max-tokens 1600
+```
+
+The generated prompt can be copied directly into Claude, GPT-5.6, local models (via Ollama, vLLM, etc.), or Cursor/Continue.dev.
+
+## Python API Example
 
 ```python
 from contextgraph import CodeContextGraph
 
 cg = CodeContextGraph()
-cg.load_project("./my-large-codebase")
+cg.load_project("./large-codebase")
 cg.build_graph()
 
+# Enable semantic search (recommended)
+cg.enable_semantic_search()   # loads small local model
+
 results = cg.query_context(
-    query="user authentication flow or database models",
-    max_tokens=1800,
-    include_graph_summary=True
+    query="database connection pooling or async session handling",
+    max_tokens=2000,
+    use_semantic=True
 )
 
-print(results["context"])  # Ready to paste into Claude, GPT, or local model
-print(results["relevant_files"])
+print(results["context"])          # Ready-to-use context
+print(results["scores"])           # Relevance scores
+print(results.get("graph_summary"))
 ```
 
-## How It Works
+## How the Query Algorithm Works
 
-1. **Scan** — Recursively finds source files
-2. **Parse** — Extracts functions, classes, imports, and call relationships
-3. **Graph** — Builds a NetworkX directed graph of code entities and relationships
-4. **Query** — Ranks and selects the most relevant nodes within your token budget
-5. **Output** — Returns clean context + graph summary optimized for LLMs
+1. **Keyword matching** on function/file names and content
+2. **Graph importance** (node degree / centrality)
+3. **Semantic similarity** (optional, using local embeddings)
+4. **Token budget pruning** with smart truncation
+
+This hybrid approach gives much better results than pure keyword or pure embedding search.
+
+## Examples
+
+See the `examples/` directory for:
+- Small realistic backend project demo
+- Data processing script example
+- Integration with local LLM workflows
+
+## Development & Contributing
+
+```bash
+git clone https://github.com/yniantongtian-oss/contextgraph.git
+cd contextgraph
+pip install -e ".[dev,semantic]"
+```
+
+We welcome contributions especially in:
+- Better multi-language parsing (tree-sitter)
+- Framework-specific heuristics
+- Benchmarks and real-world usage reports
+- Integration examples with popular coding agents
 
 ## Roadmap
 
-- Semantic search layer using local embeddings (sentence-transformers)
-- Improved multi-language support (tree-sitter)
-- Framework-specific heuristics (FastAPI, React, PyTorch, etc.)
-- Standard interfaces for easy integration with popular coding agents
-- Visualization (Mermaid, Graphviz)
-
-## Contributing
-
-Contributions are welcome! Especially:
-- Better parsers for C/C++ and JavaScript/TypeScript
-- Integration examples with Continue.dev, Cursor, Claude Code
-- Benchmarks on real-world codebases
-
-Open an issue or pull request.
+- [ ] Stronger multi-language support (C/C++, TypeScript)
+- [ ] Framework-aware context boosting
+- [ ] Persistent graph storage
+- [ ] VS Code / Continue.dev extension hooks
+- [ ] Public benchmarks on popular open-source projects
 
 ## License
 
-MIT License
+MIT

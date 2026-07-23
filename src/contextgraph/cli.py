@@ -4,71 +4,94 @@ import typer
  from pathlib import Path
  from .core import CodeContextGraph
 
- app = typer.Typer(help="ContextGraph - Intelligent code graphs for AI coding workflows")
+ app = typer.Typer(
+     help="ContextGraph - Intelligent code graphs for AI coding workflows",
+     add_completion=False
+ )
  console = Console()
 
 
  @app.command()
  def scan(
      project: str = typer.Argument(..., help="Path to the project directory"),
-     output: str = typer.Option(None, "--output", "-o", help="Save graph to JSON file")
+     output: str = typer.Option(None, "--output", "-o", help="Save stats to JSON")
  ):
-     """Scan a project and build the code graph."""
+     """Scan project and build code graph."""
      cg = CodeContextGraph()
      cg.load_project(project)
      cg.build_graph()
      stats = cg.get_graph_stats()
-     console.print(f"[bold green]Scan complete![/]")
-     console.print(f"Nodes: {stats['nodes']}, Edges: {stats['edges']}")
+ 
+     table = Table(title="Scan Results")
+     table.add_column("Metric", style="cyan")
+     table.add_column("Value", style="green")
+     for k, v in stats.items():
+         table.add_row(str(k), str(v))
+     console.print(table)
  
      if output:
          import json
          with open(output, "w") as f:
-             json.dump({"stats": stats}, f, indent=2)
-         console.print(f"Graph stats saved to {output}")
+             json.dump(stats, f, indent=2)
+         console.print(f"Stats saved to {output}")
  
 
  @app.command()
  def query(
-     query_text: str = typer.Argument(..., help="What to search for in the code"),
-     project: str = typer.Option(".", "--project", "-p", help="Project path"),
-     budget: int = typer.Option(2000, "--budget", help="Max tokens budget"),
+     query_text: str = typer.Argument(..., help="Search query for code context"),
+     project: str = typer.Option(".", "--project", "-p", help="Project root path"),
+     budget: int = typer.Option(2000, "--budget", help="Max token budget"),
+     semantic: bool = typer.Option(True, "--semantic/--no-semantic", help="Use semantic search if available")
  ):
-     """Query the code graph for relevant context."""
+     """Query relevant code context."""
      cg = CodeContextGraph()
      cg.load_project(project)
      cg.build_graph()
-     results = cg.query_context(query_text, max_tokens=budget)
  
-     console.print(f"[bold]Query:[/] {query_text}")
-     console.print(f"[bold]Estimated tokens:[/] {results['estimated_tokens']}")
-     console.print("\n[bold green]Relevant Context:[/]\n")
-     console.print(results["context"][:2000] if results["context"] else "No relevant code found.")
+     if semantic:
+         cg.enable_semantic_search()
+ 
+     results = cg.query_context(query_text, max_tokens=budget, use_semantic=semantic)
+ 
+     console.print(f"[bold cyan]Query:[/] {query_text}")
+     console.print(f"[bold]Estimated tokens used:[/] {results.get('estimated_tokens', 0)}")
+     console.print(f"[bold]Candidates found:[/] {results.get('total_candidates', 0)}")
  
      if results.get("graph_summary"):
-         console.print(f"\n[dim]{results['graph_summary']}[/]")
+         console.print(f"[dim]{results['graph_summary']}[/]")
+ 
+     console.print("\n[bold green]Relevant Context:[/]\n")
+     console.print(results.get("context", "No relevant code found.")[:3000])
  
 
  @app.command()
  def prompt(
-     task: str = typer.Argument(..., help="The coding task or question"),
+     task: str = typer.Argument(..., help="Coding task or question for the LLM"),
      project: str = typer.Option(".", "--project", "-p"),
-     max_tokens: int = typer.Option(1500, "--max-tokens", help="Token budget for context")
+     max_tokens: int = typer.Option(1500, "--max-tokens"),
+     semantic: bool = typer.Option(True, "--semantic/--no-semantic")
  ):
-     """Generate an optimized prompt with relevant context for an LLM."""
+     """Generate an optimized prompt with relevant context."""
      cg = CodeContextGraph()
      cg.load_project(project)
      cg.build_graph()
-     results = cg.query_context(task, max_tokens=max_tokens)
  
-     optimized_prompt = f"""You are an expert software engineer.
-
-Task: {task}
-
-Relevant code context:
-{results['context']}
-
-Please provide a high-quality implementation or answer."""
+     if semantic:
+         cg.enable_semantic_search()
  
-     console.print("[bold green]Optimized prompt ready to copy:[/]\n")
-     console.print(optimized_prompt)
+     results = cg.query_context(task, max_tokens=max_tokens, use_semantic=semantic)
+ 
+     optimized = f"""You are an expert software engineer with deep understanding of the provided codebase.
+
+## Task
+{task}
+
+## Relevant Code Context
+{results.get('context', '')}
+
+## Instructions
+Provide a high-quality, production-ready solution. Explain key decisions.
+"""
+ 
+     console.print("[bold green]Optimized prompt (copy to your LLM):[/]\n")
+     console.print(optimized)
