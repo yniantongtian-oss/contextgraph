@@ -4,8 +4,9 @@ import ast
 import math
 import re
 from collections import defaultdict
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Any, Iterable, Optional, Sequence
+from typing import Any
 
 import networkx as nx
 from rich.console import Console
@@ -62,7 +63,7 @@ def _terms(value: str) -> set[str]:
     return {part.lower() for part in _NON_WORD.split(expanded) if len(part) > 1}
 
 
-def _call_name(node: ast.AST) -> Optional[str]:
+def _call_name(node: ast.AST) -> str | None:
     if isinstance(node, ast.Name):
         return node.id
     if isinstance(node, ast.Attribute):
@@ -77,7 +78,7 @@ class _PythonIndexVisitor(ast.NodeVisitor):
         self.callers: list[str] = []
         self.symbols: list[dict[str, Any]] = []
         self.imports: set[str] = set()
-        self.calls: list[tuple[Optional[str], str]] = []
+        self.calls: list[tuple[str | None, str]] = []
 
     def _visit_symbol(self, node: ast.AST, name: str, kind: str) -> None:
         qualname = ".".join([*self.scope, name])
@@ -130,8 +131,8 @@ class CodeContextGraph:
     def __init__(
         self,
         *,
-        console: Optional[Console] = None,
-        excluded_dirs: Optional[Iterable[str]] = None,
+        console: Console | None = None,
+        excluded_dirs: Iterable[str] | None = None,
         max_file_bytes: int = 1_000_000,
     ) -> None:
         self.graph = nx.DiGraph()
@@ -142,14 +143,14 @@ class CodeContextGraph:
         self.console = console or Console()
         self.excluded_dirs = set(excluded_dirs or DEFAULT_EXCLUDED_DIRS)
         self.max_file_bytes = max_file_bytes
-        self.root_path: Optional[Path] = None
+        self.root_path: Path | None = None
         self.load_errors: list[str] = []
         self.parse_errors: list[str] = []
 
     def load_project(
         self,
         root_path: str | Path,
-        languages: Optional[Sequence[str]] = None,
+        languages: Sequence[str] | None = None,
     ) -> int:
         """Load supported source files and return the number of files indexed."""
         root = Path(root_path).expanduser().resolve()
@@ -344,14 +345,14 @@ class CodeContextGraph:
             show_progress_bar=False,
             convert_to_numpy=True,
         )
-        self.embeddings.update(dict(zip(missing, vectors)))
+        self.embeddings.update(dict(zip(missing, vectors, strict=True)))
 
     def _get_relevance_score(
         self,
         node_id: str,
         query: str,
         query_terms: set[str],
-        query_embedding: Optional[Any] = None,
+        query_embedding: Any | None = None,
     ) -> float:
         data = self.graph.nodes[node_id]
         name_terms = _terms(str(data.get("name", "")))
@@ -381,13 +382,16 @@ class CodeContextGraph:
                 np.linalg.norm(query_embedding) * np.linalg.norm(node_embedding)
             )
             if denominator > 0:
-                score += max(float(np.dot(query_embedding, node_embedding) / denominator), 0.0) * 2.5
+                similarity = float(
+                    np.dot(query_embedding, node_embedding) / denominator
+                )
+                score += max(similarity, 0.0) * 2.5
 
         degree = self.graph.degree(node_id)
         score += min(math.log1p(degree) / 5.0, 0.5)
         return score
 
-    def _render_node(self, node_id: str) -> tuple[str, Optional[str]]:
+    def _render_node(self, node_id: str) -> tuple[str, str | None]:
         data = self.graph.nodes[node_id]
         node_type = str(data.get("type", "node"))
         path = data.get("path")
