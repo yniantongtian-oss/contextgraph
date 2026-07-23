@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Annotated
 
 import typer
 from rich.console import Console
@@ -30,13 +30,15 @@ def _load_graph(project: Path) -> CodeContextGraph:
 
 @app.command()
 def scan(
-    project: Path = typer.Argument(..., help="Project directory to scan"),
-    output: Optional[Path] = typer.Option(
-        None,
-        "--output",
-        "-o",
-        help="Write scan statistics to a JSON file",
-    ),
+    project: Annotated[Path, typer.Argument(help="Project directory to scan")],
+    output: Annotated[
+        Path | None,
+        typer.Option(
+            "--output",
+            "-o",
+            help="Write scan statistics to a JSON file",
+        ),
+    ] = None,
 ) -> None:
     """Scan a project and print graph statistics."""
     graph = _load_graph(project)
@@ -57,14 +59,25 @@ def scan(
 
 @app.command()
 def query(
-    query_text: str = typer.Argument(..., help="Question or code concept to retrieve"),
-    project: Path = typer.Option(Path("."), "--project", "-p", help="Project root"),
-    budget: int = typer.Option(2_000, "--budget", min=1, help="Approximate token budget"),
-    semantic: bool = typer.Option(
-        False,
-        "--semantic/--no-semantic",
-        help="Enable optional local semantic search",
-    ),
+    query_text: Annotated[
+        str,
+        typer.Argument(help="Question or code concept to retrieve"),
+    ],
+    project: Annotated[
+        Path,
+        typer.Option("--project", "-p", help="Project root"),
+    ] = Path("."),
+    budget: Annotated[
+        int,
+        typer.Option("--budget", min=1, help="Approximate token budget"),
+    ] = 2_000,
+    semantic: Annotated[
+        bool,
+        typer.Option(
+            "--semantic/--no-semantic",
+            help="Enable optional local semantic search",
+        ),
+    ] = False,
 ) -> None:
     """Retrieve relevant source context."""
     graph = _load_graph(project)
@@ -87,15 +100,23 @@ def query(
 
 @app.command()
 def prompt(
-    task: str = typer.Argument(..., help="Coding task or question"),
-    project: Path = typer.Option(Path("."), "--project", "-p", help="Project root"),
-    max_tokens: int = typer.Option(
-        1_500,
-        "--max-tokens",
-        min=1,
-        help="Approximate token budget for source context",
-    ),
-    semantic: bool = typer.Option(False, "--semantic/--no-semantic"),
+    task: Annotated[str, typer.Argument(help="Coding task or question")],
+    project: Annotated[
+        Path,
+        typer.Option("--project", "-p", help="Project root"),
+    ] = Path("."),
+    max_tokens: Annotated[
+        int,
+        typer.Option(
+            "--max-tokens",
+            min=1,
+            help="Approximate token budget for source context",
+        ),
+    ] = 1_500,
+    semantic: Annotated[
+        bool,
+        typer.Option("--semantic/--no-semantic"),
+    ] = False,
 ) -> None:
     """Create a reusable prompt containing retrieved code context."""
     graph = _load_graph(project)
