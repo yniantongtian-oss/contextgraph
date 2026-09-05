@@ -68,3 +68,12 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.ruff.format]
 quote-style = "double"
+
+
+[tool.coverage.run]
+branch = true
+source = ["contextgraph"]
+
+[tool.coverage.report]
+fail_under = 70
+show_missing = true

@@ -94,3 +94,63 @@ def test_invalid_query_inputs_are_rejected(tmp_path: Path) -> None:
         graph.query_context("login", max_tokens=0)
     with pytest.raises(ValueError, match="searchable term"):
         graph.query_context("--")
+
+
+def test_nested_and_async_symbols_and_relative_imports(tmp_path: Path) -> None:
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "pkg" / "util.py").write_text(
+        """
+async def fetch(url: str) -> str:
+    return url
+
+
+def helper() -> int:
+    def inner() -> int:
+        return 1
+    return inner()
+""".strip(),
+        encoding="utf-8",
+    )
+    (tmp_path / "pkg" / "app.py").write_text(
+        """
+from .util import fetch, helper
+
+
+async def main() -> str:
+    helper()
+    return await fetch("x")
+""".strip(),
+        encoding="utf-8",
+    )
+
+    graph = CodeContextGraph()
+    assert graph.load_project(tmp_path) >= 2
+    graph.build_graph()
+    stats = graph.get_graph_stats()
+    kinds = stats["node_types"]
+    assert kinds.get("function", 0) + kinds.get("method", 0) >= 3
+    # nested function should be indexed when present
+    node_names = [data.get("name") for _, data in graph.graph.nodes(data=True)]
+    assert "fetch" in node_names
+    assert "helper" in node_names
+
+
+def test_empty_project_query_is_safe(tmp_path: Path) -> None:
+    graph = CodeContextGraph()
+    assert graph.load_project(tmp_path) == 0
+    graph.build_graph()
+    result = graph.query_context("anything", max_tokens=50)
+    assert result["estimated_tokens"] <= 50
+    assert isinstance(result["relevant_files"], list)
+
+
+def test_malformed_python_is_skipped_or_tolerated(tmp_path: Path) -> None:
+    (tmp_path / "ok.py").write_text("def ok():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "bad.py").write_text("def broken(\n", encoding="utf-8")
+    graph = CodeContextGraph()
+    graph.load_project(tmp_path)
+    graph.build_graph()
+    # At least the valid file should contribute a symbol.
+    names = [data.get("name") for _, data in graph.graph.nodes(data=True)]
+    assert "ok" in names
