@@ -4,6 +4,13 @@
 
 Prepare a reliable public alpha (`0.1.0`) with importable code, enforced CI, accurate documentation, and a publishable distribution name.
 
+## September 2026 maintenance
+
+- Combined the pending checkout, Python setup, Rich, and regression-test updates.
+- Preserved the 80% CI coverage requirement in the local configuration.
+- Validation and a fresh CI run are required before merging the maintenance branch.
+- Package publication is outside this maintenance task.
+
 ## Completed in current maintenance pass
 
 - repaired malformed Python indentation

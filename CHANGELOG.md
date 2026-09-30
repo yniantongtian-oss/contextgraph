@@ -12,6 +12,7 @@ All notable changes will be documented here.
 
 ### Added
 
+- Regression coverage for nested and async symbols, relative imports, empty projects, and malformed Python.
 - Two-pass Python symbol indexing with classes, methods, functions, imports, and resolvable call edges.
 - Repository-relative node identifiers and richer graph statistics.
 - Token-budgeted symbol source rendering and optional semantic scoring.
@@ -20,6 +21,8 @@ All notable changes will be documented here.
 
 ### Changed
 
+- Updated checkout and Python setup actions to v7 and allowed Rich 15.
+- Aligned the local branch coverage gate with CI at 80%.
 - Distribution name is now `contextgraph-ai`; the import package remains `contextgraph`.
 - Semantic search is opt-in in the CLI to avoid unexpected model downloads.
 - Project status is correctly marked as alpha.
