@@ -23,4 +23,4 @@ ContextGraph performs static file reads and Python AST parsing. It does not impo
 - optional semantic models may require third-party package installation and model downloads
 - generated context can contain secrets already present in source files
 
-Run it with least privilege and exclude repositories or paths containing credentials that should not enter an LLM prompt.
+Run it with least privilege and exclude repositories or paths containing credentials that should not be included in exported model context.
