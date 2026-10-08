@@ -15,7 +15,7 @@ ContextGraph scans a repository, extracts Python files, classes, functions, meth
 - Python AST indexing for files, classes, functions, methods, imports, and local call edges
 - Hybrid ranking using symbol names, file paths, source text, graph degree, and optional local embeddings
 - Token-budgeted source-context output
-- CLI commands for scanning, querying, and prompt generation
+- CLI commands for scanning and bounded source retrieval
 - A small Python API with no required cloud service
 - CI across Python 3.10 through 3.13
 
@@ -70,12 +70,10 @@ contextgraph query "where is user identity verified" \
   --semantic
 ```
 
-Generate a prompt containing the retrieved source:
+Retrieve the source relevant to a development task:
 
 ```bash
-contextgraph prompt "Add rate limiting to login" \
-  --project ./my-project \
-  --max-tokens 1600
+contextgraph query "rate limiting for login" --project ./my-project --budget 1600
 ```
 
 ## Python API
