@@ -26,3 +26,11 @@ Prepare a reliable public alpha (`0.1.0`) with importable code, enforced CI, acc
 2. Configure PyPI trusted publishing for the `pypi` GitHub environment.
 3. Publish `0.1.0` only after confirming the distribution name is accepted.
 4. Add benchmark fixtures before claiming retrieval-quality or token-savings improvements.
+
+## October 2026 maintenance
+
+- Added a structured JSON source-bundle command for interoperable retrieval.
+- Added CLI regression coverage for the new file output.
+- Removed provider-specific instruction generation from the command-line interface.
+- Verified that structured retrieval preserves source provenance.
+- Publishing and incremental indexing remain separate follow-up milestones.
