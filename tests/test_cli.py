@@ -29,6 +29,7 @@ def test_query_command(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "authenticate" in result.output
 
+
 def test_bundle_command_exports_structured_context(tmp_path: Path) -> None:
     import json
 
