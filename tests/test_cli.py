@@ -28,3 +28,31 @@ def test_query_command(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     assert "authenticate" in result.output
+
+def test_bundle_command_exports_structured_context(tmp_path: Path) -> None:
+    import json
+
+    (tmp_path / "service.py").write_text(
+        "def authorize(request):\n    return bool(request)\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "result" / "source-bundle.json"
+    result = runner.invoke(
+        app,
+        [
+            "bundle",
+            "authorize",
+            "--project",
+            str(tmp_path),
+            "--max-tokens",
+            "300",
+            "--output",
+            str(output),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    document = json.loads(output.read_text(encoding="utf-8"))
+    assert document["task"] == "authorize"
+    assert "authorize" in document["context"]
+    assert isinstance(document["relevant_files"], list)
+    assert document["estimated_tokens"] >= 0
