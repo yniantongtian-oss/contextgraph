@@ -99,8 +99,8 @@ def query(
 
 
 @app.command()
-def prompt(
-    task: Annotated[str, typer.Argument(help="Coding task or question")],
+def bundle(
+    task: Annotated[str, typer.Argument(help="Development task or code concept")],
     project: Annotated[
         Path,
         typer.Option("--project", "-p", help="Project root"),
@@ -110,35 +110,38 @@ def prompt(
         typer.Option(
             "--max-tokens",
             min=1,
-            help="Approximate token budget for source context",
+            help="Approximate maximum source token budget",
         ),
     ] = 1_500,
     semantic: Annotated[
         bool,
         typer.Option("--semantic/--no-semantic"),
     ] = False,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Write the retrieved source bundle to JSON"),
+    ] = None,
 ) -> None:
-    """Create a reusable prompt containing retrieved code context."""
+    """Export relevant source context and retrieval metadata as structured JSON."""
     graph = _load_graph(project)
     if semantic and not graph.enable_semantic_search():
         raise typer.Exit(code=2)
 
     result = graph.query_context(task, max_tokens=max_tokens, use_semantic=semantic)
-    optimized = f"""You are an expert software engineer working in the supplied codebase.
-
-## Task
-{task}
-
-## Retrieved code context
-{result.get("context", "")}
-
-## Requirements
-- Ground the answer in the retrieved code.
-- State assumptions when context is incomplete.
-- Preserve existing public APIs unless the task explicitly requires a breaking change.
-- Include focused tests for behavior that changes.
-"""
-    console.print(optimized, markup=False)
+    payload = {
+        "task": task,
+        "context": result.get("context", ""),
+        "relevant_files": result.get("relevant_files", []),
+        "estimated_tokens": result.get("estimated_tokens", 0),
+        "total_candidates": result.get("total_candidates", 0),
+    }
+    document = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+    if output is None:
+        console.print(document, markup=False, highlight=False, end="")
+    else:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(document, encoding="utf-8")
+        console.print(f"Source bundle written to {output}")
 
 
 if __name__ == "__main__":  # pragma: no cover
