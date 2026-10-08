@@ -76,6 +76,17 @@ Retrieve the source relevant to a development task:
 contextgraph query "rate limiting for login" --project ./my-project --budget 1600
 ```
 
+Export an inspectable, tool-neutral source bundle as JSON:
+
+```bash
+contextgraph bundle "authentication token validation" \\
+  --project ./my-project \\
+  --max-tokens 1200 \\
+  --output ./retrieval-result.json
+```
+
+The exported file records the task, retrieved context, source filenames, token estimate, and candidate count. It does not generate role instructions or require a hosted service.
+
 ## Python API
 
 ```python
