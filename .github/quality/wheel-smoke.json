@@ -1,0 +1,13 @@
+{
+  "modules": [
+    "contextgraph",
+    "contextgraph.core"
+  ],
+  "cli": "contextgraph",
+  "extras": "",
+  "commands": [
+    [
+      "--help"
+    ]
+  ]
+}
