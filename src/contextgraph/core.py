@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import math
+import os
 import re
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
@@ -55,7 +56,7 @@ DEFAULT_EXCLUDED_DIRS = frozenset(
 )
 
 _WORD_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
-_NON_WORD = re.compile(r"[^a-zA-Z0-9]+")
+_NON_WORD = re.compile(r"[\W_]+", re.UNICODE)
 
 
 def _terms(value: str) -> set[str]:
@@ -75,6 +76,7 @@ class _PythonIndexVisitor(ast.NodeVisitor):
     def __init__(self, source: str) -> None:
         self.source = source
         self.scope: list[str] = []
+        self.scope_kinds: list[str] = []
         self.callers: list[str] = []
         self.symbols: list[dict[str, Any]] = []
         self.imports: set[str] = set()
@@ -94,20 +96,22 @@ class _PythonIndexVisitor(ast.NodeVisitor):
             }
         )
         self.scope.append(name)
+        self.scope_kinds.append(kind)
         self.callers.append(qualname)
         self.generic_visit(node)
         self.callers.pop()
         self.scope.pop()
+        self.scope_kinds.pop()
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:  # noqa: N802
         self._visit_symbol(node, node.name, "class")
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
-        kind = "method" if self.scope else "function"
+        kind = "method" if self.scope_kinds and self.scope_kinds[-1] == "class" else "function"
         self._visit_symbol(node, node.name, kind)
 
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802
-        kind = "method" if self.scope else "function"
+        kind = "method" if self.scope_kinds and self.scope_kinds[-1] == "class" else "function"
         self._visit_symbol(node, node.name, kind)
 
     def visit_Import(self, node: ast.Import) -> None:  # noqa: N802
@@ -141,7 +145,13 @@ class CodeContextGraph:
         self.model: Any = None
         self.semantic_enabled = False
         self.console = console or Console()
-        self.excluded_dirs = set(excluded_dirs or DEFAULT_EXCLUDED_DIRS)
+        self.excluded_dirs = set(DEFAULT_EXCLUDED_DIRS if excluded_dirs is None else excluded_dirs)
+        if (
+            isinstance(max_file_bytes, bool)
+            or not isinstance(max_file_bytes, int)
+            or max_file_bytes <= 0
+        ):
+            raise ValueError("max_file_bytes must be a positive integer")
         self.max_file_bytes = max_file_bytes
         self.root_path: Path | None = None
         self.load_errors: list[str] = []
@@ -167,9 +177,7 @@ class CodeContextGraph:
         self.load_errors.clear()
         self.parse_errors.clear()
 
-        for file_path in root.rglob("*"):
-            if not file_path.is_file():
-                continue
+        for file_path in self._source_paths(root):
             relative = file_path.relative_to(root)
             if self._is_excluded(relative):
                 continue
@@ -198,6 +206,32 @@ class CodeContextGraph:
 
         self.console.print(f"[green]Loaded {len(self.files)} source files from {root}[/]")
         return len(self.files)
+
+    def _source_paths(self, root: Path) -> Iterable[Path]:
+        def linked(path: Path) -> bool:
+            try:
+                return path.is_symlink() or bool(
+                    getattr(path.lstat(), "st_file_attributes", 0) & 0x400
+                )
+            except OSError as exc:
+                self.load_errors.append(f"{path.relative_to(root).as_posix()}: {exc}")
+                return True
+
+        def failed(exc: OSError) -> None:
+            self.load_errors.append(str(exc))
+
+        for directory, dirs, files in os.walk(root, followlinks=False, onerror=failed):
+            base = Path(directory)
+            dirs[:] = sorted(
+                name
+                for name in dirs
+                if not self._is_excluded((base / name).relative_to(root))
+                and not linked(base / name)
+            )
+            for name in sorted(files):
+                path = base / name
+                if not linked(path) and path.is_file():
+                    yield path
 
     def _is_excluded(self, relative_path: Path) -> bool:
         return any(
@@ -376,6 +410,8 @@ class CodeContextGraph:
                 similarity = float(np.dot(query_embedding, node_embedding) / denominator)
                 score += max(similarity, 0.0) * 2.5
 
+        if score <= 0:
+            return 0.0
         degree = self.graph.degree(node_id)
         score += min(math.log1p(degree) / 5.0, 0.5)
         return score
@@ -400,8 +436,8 @@ class CodeContextGraph:
         use_semantic: bool = False,
     ) -> dict[str, Any]:
         """Return scored source context constrained by an approximate token budget."""
-        if max_tokens <= 0:
-            raise ValueError("max_tokens must be greater than zero")
+        if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens <= 0:
+            raise ValueError("max_tokens must be a positive integer greater than zero")
         query_terms = _terms(query)
         if not query_terms:
             raise ValueError("query must contain at least one searchable term")
@@ -457,16 +493,18 @@ class CodeContextGraph:
                 continue
 
             block, block_path = self._render_node(node_id)
-            if remaining < 80:
+            separator = 1 if selected else 0
+            available = remaining - separator
+            if available < 80:
                 break
-            if len(block) > remaining:
+            if len(block) > available:
                 marker = "\n... [truncated to token budget]\n"
-                block = block[: max(0, remaining - len(marker))].rstrip() + marker
+                block = block[: max(0, available - len(marker))].rstrip() + marker
             if not block.strip():
                 continue
 
             selected.append((node_id, score, block))
-            remaining -= len(block)
+            remaining -= len(block) + separator
             if block_path and block_path not in selected_files:
                 selected_files.append(block_path)
             if data.get("type") != "file" and path:
