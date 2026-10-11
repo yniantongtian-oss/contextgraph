@@ -34,3 +34,12 @@ Prepare a reliable public alpha (`0.1.0`) with importable code, enforced CI, acc
 - Removed provider-specific instruction generation from the command-line interface.
 - Verified that structured retrieval preserves source provenance.
 - Publishing and incremental indexing remain separate follow-up milestones.
+
+## October 11 reliability validation
+
+- Honor an explicitly empty directory exclusion set and prune excluded trees before scanning.
+- Skip source symlinks and Windows reparse points.
+- Search Unicode identifiers and reject unrelated queries instead of ranking them by graph degree alone.
+- Classify nested functions correctly and require positive integer file and token limits.
+- Reserve separator characters within the context budget.
+- Retain the 80% coverage requirement and validate the installed distribution.
