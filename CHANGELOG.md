@@ -6,12 +6,21 @@ All notable changes will be documented here.
 
 ### Fixed
 
+- Call edges no longer attach every same-named symbol in a file. Bare calls prefer the nested or module-level function, and `self.method()` stays on the enclosing class. Ambiguous names are left unresolved.
+- Context packing no longer repeats a file, class, and method over the same lines, and a short later hit can still use leftover budget under 80 characters.
+- `contextgraph scan` prints parse and load failures, and those messages are included in the statistics JSON.
+- `pack` and `bundle` write index progress to stderr and print JSON without terminal wrapping, so a stdout document can be piped.
+- Query text that contains square brackets is printed literally.
+- Corrected the `bundle` command example so the shell continuations are single backslashes.
 - Corrected invalid top-level indentation in the core module, CLI, tests, and example.
 - Removed CI logic that converted failing tests into successful workflow runs.
 - Avoided the already-occupied `contextgraph` PyPI distribution name.
 
 ### Added
 
+- `contextgraph pack --budget N` exports ranked source that fits an approximate token budget, with per-item rank, score, path, and line span.
+- Optional `contextgraph-ai[mcp]` extra: a stdio MCP server (`contextgraph mcp`) with `build_graph`, `query_context`, and `pack_context`, built on the official MCP Python SDK.
+- Claude Code and Cursor configuration examples for that server.
 - Regression coverage for nested and async symbols, relative imports, empty projects, and malformed Python.
 - Two-pass Python symbol indexing with classes, methods, functions, imports, and resolvable call edges.
 - Repository-relative node identifiers and richer graph statistics.

@@ -35,6 +35,16 @@ Prepare a reliable public alpha (`0.1.0`) with importable code, enforced CI, acc
 - Verified that structured retrieval preserves source provenance.
 - Publishing and incremental indexing remain separate follow-up milestones.
 
+## October 2026 agent context
+
+- Added `pack_context` and `contextgraph pack --budget N` so agents can export ranked source inside a token budget without a second copy of each snippet.
+- Added an optional stdio MCP server (`contextgraph-ai[mcp]`, official `mcp` SDK) with `build_graph`, `query_context`, and `pack_context`.
+- Call resolution no longer links every same-named symbol. Ambiguous calls stay unresolved.
+- Packing suppresses nested spans and keeps a short later hit when leftover budget is under 80 characters.
+- Scan JSON and the console now include parse and load error messages.
+- Docs show Claude Code (`.mcp.json`) and Cursor (`.cursor/mcp.json`) stdio config.
+- Publishing, persistent indexes, and retrieval benchmarks remain separate follow-up milestones.
+
 ## October 11 reliability validation
 
 - Honor an explicitly empty directory exclusion set and prune excluded trees before scanning.

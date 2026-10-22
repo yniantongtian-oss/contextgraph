@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from .core import CodeContextGraph
@@ -16,16 +17,45 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console()
+stderr_console = Console(stderr=True)
 
 
-def _load_graph(project: Path) -> CodeContextGraph:
-    graph = CodeContextGraph(console=console)
+def _load_graph(project: Path, output_console: Console | None = None) -> CodeContextGraph:
+    graph = CodeContextGraph(console=output_console or console)
     try:
         graph.load_project(project)
     except (FileNotFoundError, NotADirectoryError) as exc:
         raise typer.BadParameter(str(exc), param_hint="project") from exc
     graph.build_graph()
     return graph
+
+
+def _emit_json(payload: dict[str, Any], output: Path | None, written_label: str) -> None:
+    document = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+    if output is None:
+        console.print(document, markup=False, highlight=False, soft_wrap=True, end="")
+        return
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(document, encoding="utf-8")
+    console.print(f"{written_label} written to {output}")
+
+
+def _load_mcp_main():
+    from .mcp_server import main
+
+    return main
+
+
+def _start_mcp() -> None:
+    try:
+        main = _load_mcp_main()
+    except ImportError:
+        console.print(
+            "MCP support is not installed. Run: pip install 'contextgraph-ai[mcp]'",
+            markup=False,
+        )
+        raise typer.Exit(code=2) from None
+    main()
 
 
 @app.command()
@@ -48,8 +78,12 @@ def scan(
     table.add_column("Metric", style="cyan")
     table.add_column("Value", style="green")
     for key, value in stats.items():
-        table.add_row(str(key), json.dumps(value) if isinstance(value, dict) else str(value))
+        rendered = json.dumps(value) if isinstance(value, (dict, list)) else str(value)
+        table.add_row(escape(str(key)), escape(rendered))
     console.print(table)
+
+    for message in [*graph.load_errors, *graph.parse_errors]:
+        console.print(message, markup=False)
 
     if output:
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -89,7 +123,7 @@ def query(
         max_tokens=budget,
         use_semantic=semantic,
     )
-    console.print(f"[bold cyan]Query:[/] {query_text}")
+    console.print(f"[bold cyan]Query:[/] {escape(query_text)}")
     console.print(f"[bold]Estimated tokens:[/] {result['estimated_tokens']}")
     console.print(f"[bold]Scored candidates:[/] {result['total_candidates']}")
     if result.get("graph_summary"):
@@ -123,7 +157,7 @@ def bundle(
     ] = None,
 ) -> None:
     """Export relevant source context and retrieval metadata as structured JSON."""
-    graph = _load_graph(project)
+    graph = _load_graph(project, stderr_console)
     if semantic and not graph.enable_semantic_search():
         raise typer.Exit(code=2)
 
@@ -135,13 +169,42 @@ def bundle(
         "estimated_tokens": result.get("estimated_tokens", 0),
         "total_candidates": result.get("total_candidates", 0),
     }
-    document = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
-    if output is None:
-        console.print(document, markup=False, highlight=False, end="")
-    else:
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(document, encoding="utf-8")
-        console.print(f"Source bundle written to {output}")
+    _emit_json(payload, output, "Source bundle")
+
+
+@app.command()
+def pack(
+    query_text: Annotated[str, typer.Argument(help="Question or code concept to pack")],
+    project: Annotated[
+        Path,
+        typer.Option("--project", "-p", help="Project root"),
+    ] = Path("."),
+    budget: Annotated[
+        int,
+        typer.Option("--budget", min=1, help="Approximate token budget for the packed context"),
+    ] = 2_000,
+    semantic: Annotated[
+        bool,
+        typer.Option("--semantic/--no-semantic"),
+    ] = False,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Write the ranked context pack to JSON"),
+    ] = None,
+) -> None:
+    """Export ranked source context that fits an approximate token budget."""
+    graph = _load_graph(project, stderr_console)
+    if semantic and not graph.enable_semantic_search():
+        raise typer.Exit(code=2)
+
+    payload = graph.pack_context(query_text, max_tokens=budget, use_semantic=semantic)
+    _emit_json(payload, output, "Context pack")
+
+
+@app.command(name="mcp")
+def mcp_server() -> None:
+    """Serve build, query, and pack tools over MCP stdio."""
+    _start_mcp()
 
 
 if __name__ == "__main__":  # pragma: no cover

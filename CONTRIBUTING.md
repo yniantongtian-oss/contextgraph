@@ -10,6 +10,8 @@ cd contextgraph
 python -m pip install -e ".[dev]"
 ```
 
+`dev` includes the optional MCP extra used by the server tests. Users who only want the server can install `contextgraph-ai[mcp]` without the development tools.
+
 ## Required checks
 
 Before opening a pull request, run:
