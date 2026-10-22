@@ -154,3 +154,5 @@ def test_malformed_python_is_skipped_or_tolerated(tmp_path: Path) -> None:
     # At least the valid file should contribute a symbol.
     names = [data.get("name") for _, data in graph.graph.nodes(data=True)]
     assert "ok" in names
+    assert any("bad.py" in message for message in graph.parse_errors)
+    assert graph.get_graph_stats()["parse_error_messages"] == graph.parse_errors

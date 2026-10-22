@@ -1,6 +1,6 @@
 # Examples
 
-`backend_demo.py` creates a temporary Python project, indexes it, and retrieves authentication-related source context.
+`backend_demo.py` creates a temporary Python project, indexes it, retrieves authentication-related source context, and prints the ranked pack.
 
 Run from an editable development install:
 

@@ -55,6 +55,11 @@ def main() -> None:
     print("\n=== Retrieved context ===")
     print(result["context"])
 
+    packed = graph.pack_context("login authentication", max_tokens=300)
+    print("\n=== Packed ranks ===")
+    for item in packed["items"]:
+        print(f"{item['rank']}. {item['id']} score={item['score']}")
+
 
 if __name__ == "__main__":
     main()

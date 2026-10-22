@@ -8,6 +8,14 @@
   "commands": [
     [
       "--help"
+    ],
+    [
+      "pack",
+      "graph",
+      "--project",
+      "{root}",
+      "--budget",
+      "200"
     ]
   ]
 }

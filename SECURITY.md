@@ -24,3 +24,5 @@ ContextGraph performs static file reads and Python AST parsing. It does not impo
 - generated context can contain secrets already present in source files
 
 Run it with least privilege and exclude repositories or paths containing credentials that should not be included in exported model context.
+
+The optional MCP server speaks stdio to a local client such as Claude Code or Cursor. It reads the project path named by a tool call and parses it with `ast`. It does not execute indexed code and it does not listen on a network port. A client that can invoke the server can read source the process can read, including secrets checked into those files. Do not expose the stdio process through an unauthenticated network proxy.

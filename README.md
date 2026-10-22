@@ -15,6 +15,8 @@ ContextGraph scans a repository, extracts Python files, classes, functions, meth
 - Python AST indexing for files, classes, functions, methods, imports, and local call edges
 - Hybrid ranking using symbol names, file paths, source text, graph degree, and optional local embeddings
 - Token-budgeted source-context output
+- Ranked `pack` export for agent prompts
+- Optional stdio MCP server for build, query, and pack
 - CLI commands for scanning and bounded source retrieval
 - A small Python API with no required cloud service
 - CI across Python 3.10 through 3.13
@@ -37,6 +39,12 @@ Optional semantic retrieval:
 
 ```bash
 python -m pip install "contextgraph-ai[semantic]"
+```
+
+Optional MCP server (official Python SDK, stdio only):
+
+```bash
+python -m pip install "contextgraph-ai[mcp]"
 ```
 
 The distribution name is `contextgraph-ai`; the Python import remains:
@@ -79,13 +87,22 @@ contextgraph query "rate limiting for login" --project ./my-project --budget 160
 Export an inspectable, tool-neutral source bundle as JSON:
 
 ```bash
-contextgraph bundle "authentication token validation" \\
-  --project ./my-project \\
-  --max-tokens 1200 \\
+contextgraph bundle "authentication token validation" \
+  --project ./my-project \
+  --max-tokens 1200 \
   --output ./retrieval-result.json
 ```
 
 The exported file records the task, retrieved context, source filenames, token estimate, and candidate count. It does not generate role instructions or require a hosted service.
+
+Export a ranked context pack that stays inside a token budget. The budget applies to the packed source text (about four characters per token), including separators between blocks. Items carry rank, score, path, and line span so the source is not repeated twice. Without `--output`, the JSON document is the only thing written to stdout; index progress goes to stderr:
+
+```bash
+contextgraph pack "authentication token validation" \
+  --project ./my-project \
+  --budget 1200 \
+  --output ./context-pack.json
+```
 
 ## Python API
 
@@ -104,6 +121,71 @@ result = cg.query_context(
 print(result["context"])
 print(result["relevant_files"])
 print(result["scores"])
+
+packed = cg.pack_context("authentication token validation", max_tokens=1200)
+print(packed["estimated_tokens"], packed["items"][0]["id"])
+```
+
+## MCP server
+
+`contextgraph mcp` speaks [MCP](https://modelcontextprotocol.io) over stdio. It exposes three tools:
+
+| Tool | Purpose |
+| --- | --- |
+| `build_graph` | Index a project path and return graph statistics, including parse and load errors |
+| `query_context` | Preview ranked matches for a query inside a token budget |
+| `pack_context` | Export the ranked pack (`budget` limits the context text) |
+
+The server reads local files and parses Python with `ast`. It does not execute the project and it does not open a network port. Query and pack reuse the last index for a path until `build_graph` runs again.
+
+Install the extra, then point the editor at the `contextgraph` executable on `PATH`.
+
+### Claude Code
+
+Add this to `.mcp.json` in the project root (or run `claude mcp add --transport stdio contextgraph -- contextgraph mcp`):
+
+```json
+{
+  "mcpServers": {
+    "contextgraph": {
+      "type": "stdio",
+      "command": "contextgraph",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Claude Code asks before it starts a project-scoped server. If `contextgraph` is only installed in a virtualenv, set `command` to that environment's executable.
+
+### Cursor
+
+Add this to `.cursor/mcp.json` in the project, or to `~/.cursor/mcp.json` for every workspace:
+
+```json
+{
+  "mcpServers": {
+    "contextgraph": {
+      "type": "stdio",
+      "command": "contextgraph",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Cursor interpolates `${workspaceFolder}` if the executable lives inside the project:
+
+```json
+{
+  "mcpServers": {
+    "contextgraph": {
+      "type": "stdio",
+      "command": "${workspaceFolder}/.venv/bin/contextgraph",
+      "args": ["mcp"]
+    }
+  }
+}
 ```
 
 ## How it works
@@ -146,7 +228,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/architecture.md](docs/architect
 - Tree-sitter parsers for TypeScript, JavaScript, C, and C++
 - Context expansion through callers, callees, and neighboring symbols
 - Reproducible retrieval benchmarks
-- MCP and editor integrations
+- Editor plugins that keep a long-lived index beside the stdio MCP server
 
 ## Security
 

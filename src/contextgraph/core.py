@@ -64,12 +64,72 @@ def _terms(value: str) -> set[str]:
     return {part.lower() for part in _NON_WORD.split(expanded) if len(part) > 1}
 
 
-def _call_name(node: ast.AST) -> str | None:
-    if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        return node.attr
-    return None
+_TRUNCATION_MARKER = "\n... [truncated to token budget]\n"
+_MIN_TRUNCATED_BODY = 20
+
+
+def _unique(node_ids: list[str]) -> list[str]:
+    return list(dict.fromkeys(node_ids))
+
+
+def _resolve_call_targets(
+    graph: nx.DiGraph,
+    relative_path: str,
+    caller_qualname: str | None,
+    called_name: str,
+    kind: str,
+    local_name_index: dict[tuple[str, str], list[str]],
+    simple_name_index: dict[str, list[str]],
+) -> list[str]:
+    """Resolve a call to zero or one target.
+
+    Ambiguous names stay unresolved. Bare names prefer a nested function in the
+    caller, then the module-level function in the same file. Attribute calls
+    prefer the enclosing class scope, which matches ``self.save()`` without
+    attaching every same-named method in the file.
+    """
+    local = _unique(local_name_index.get((relative_path, called_name), []))
+
+    def qualname(node_id: str) -> str:
+        return str(graph.nodes[node_id].get("qualname", ""))
+
+    if kind == "name":
+        if caller_qualname:
+            nested = [
+                node_id
+                for node_id in local
+                if qualname(node_id).rpartition(".")[0] == caller_qualname
+            ]
+            if len(nested) == 1:
+                return nested
+        module_level = [node_id for node_id in local if "." not in qualname(node_id)]
+        if len(module_level) == 1:
+            return module_level
+        if len(local) == 1:
+            return local
+        if local:
+            return []
+    elif kind == "attr" and len(local) > 1:
+        scope = caller_qualname.rpartition(".")[0] if caller_qualname else ""
+        while scope:
+            matched = [
+                node_id for node_id in local if qualname(node_id).rpartition(".")[0] == scope
+            ]
+            if len(matched) == 1:
+                return matched
+            if len(matched) > 1:
+                return []
+            scope = scope.rpartition(".")[0]
+        return []
+    elif len(local) == 1:
+        return local
+    elif local:
+        return []
+
+    global_candidates = _unique(simple_name_index.get(called_name, []))
+    if len(global_candidates) == 1:
+        return global_candidates
+    return []
 
 
 class _PythonIndexVisitor(ast.NodeVisitor):
@@ -80,7 +140,7 @@ class _PythonIndexVisitor(ast.NodeVisitor):
         self.callers: list[str] = []
         self.symbols: list[dict[str, Any]] = []
         self.imports: set[str] = set()
-        self.calls: list[tuple[str | None, str]] = []
+        self.calls: list[tuple[str | None, str, str]] = []
 
     def _visit_symbol(self, node: ast.AST, name: str, kind: str) -> None:
         qualname = ".".join([*self.scope, name])
@@ -122,10 +182,15 @@ class _PythonIndexVisitor(ast.NodeVisitor):
             self.imports.add(node.module)
 
     def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
-        name = _call_name(node.func)
-        if name:
+        kind: str | None = None
+        name: str | None = None
+        if isinstance(node.func, ast.Name):
+            kind, name = "name", node.func.id
+        elif isinstance(node.func, ast.Attribute):
+            kind, name = "attr", node.func.attr
+        if name and kind:
             caller = self.callers[-1] if self.callers else None
-            self.calls.append((caller, name))
+            self.calls.append((caller, name, kind))
         self.generic_visit(node)
 
 
@@ -304,18 +369,25 @@ class CodeContextGraph:
 
         for relative_path, visitor in visitors.items():
             file_node = self._file_node(relative_path)
-            for caller_qualname, called_name in visitor.calls:
+            for caller_qualname, called_name, kind in visitor.calls:
                 caller_node = (
                     self._symbol_node(relative_path, caller_qualname)
                     if caller_qualname
                     else file_node
                 )
-                candidates = local_name_index.get((relative_path, called_name), [])
-                if not candidates:
-                    global_candidates = simple_name_index.get(called_name, [])
-                    candidates = global_candidates if len(global_candidates) == 1 else []
-                for target_node in candidates:
-                    if caller_node != target_node:
+                if caller_node not in self.graph:
+                    continue
+                targets = _resolve_call_targets(
+                    self.graph,
+                    relative_path,
+                    caller_qualname,
+                    called_name,
+                    kind,
+                    local_name_index,
+                    simple_name_index,
+                )
+                for target_node in targets:
+                    if target_node in self.graph and caller_node != target_node:
                         self.graph.add_edge(caller_node, target_node, relation="calls")
 
         self.console.print(
@@ -428,6 +500,206 @@ class CodeContextGraph:
             header = f"# {node_type.title()}: {qualname} ({path}:{data.get('lineno', 1)})\n"
         return header + source + "\n", str(path) if path else None
 
+    def _node_span(self, node_id: str) -> tuple[str, int, int] | None:
+        data = self.graph.nodes[node_id]
+        path = data.get("path")
+        if not path:
+            return None
+        if data.get("type") == "file":
+            source = str(data.get("source", ""))
+            end = source.count("\n") + 1 if source else 1
+            return str(path), 1, max(end, 1)
+        start = int(data.get("lineno") or 1)
+        end = int(data.get("end_lineno") or start)
+        return str(path), start, max(end, start)
+
+    @staticmethod
+    def _spans_nest(left: tuple[str, int, int], right: tuple[str, int, int]) -> bool:
+        if left[0] != right[0]:
+            return False
+        return (left[1] <= right[1] and right[2] <= left[2]) or (
+            right[1] <= left[1] and left[2] <= right[2]
+        )
+
+    @staticmethod
+    def _strictly_contains(outer: tuple[str, int, int], inner: tuple[str, int, int]) -> bool:
+        if outer[0] != inner[0]:
+            return False
+        covers = outer[1] <= inner[1] and inner[2] <= outer[2]
+        proper = outer[1] < inner[1] or outer[2] > inner[2]
+        return covers and proper
+
+    def _validate_retrieval(self, query: str, max_tokens: object) -> tuple[set[str], int]:
+        if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens <= 0:
+            raise ValueError("max_tokens must be a positive integer greater than zero")
+        query_terms = _terms(query)
+        if not query_terms:
+            raise ValueError("query must contain at least one searchable term")
+        return query_terms, max_tokens
+
+    def _score_candidates(
+        self,
+        query: str,
+        query_terms: set[str],
+        *,
+        use_semantic: bool,
+    ) -> tuple[list[str], list[tuple[str, float]]]:
+        candidate_nodes = self._candidate_nodes()
+        if not candidate_nodes:
+            return candidate_nodes, []
+
+        query_embedding = None
+        if use_semantic and self.semantic_enabled and self.model is not None:
+            self._compute_embeddings(candidate_nodes)
+            query_embedding = self.model.encode([query], convert_to_numpy=True)[0]
+
+        scored = [
+            (
+                node_id,
+                self._get_relevance_score(node_id, query, query_terms, query_embedding),
+            )
+            for node_id in candidate_nodes
+        ]
+        scored = [item for item in scored if item[1] > 0]
+        scored.sort(
+            key=lambda item: (
+                -item[1],
+                0 if self.graph.nodes[item[0]].get("type") != "file" else 1,
+                item[0],
+            )
+        )
+        return candidate_nodes, scored
+
+    def pack_context(
+        self,
+        query: str,
+        max_tokens: int = 2_000,
+        use_semantic: bool = False,
+    ) -> dict[str, Any]:
+        """Pack ranked source into an approximate token budget.
+
+        The budget counts the packed context text at four characters per token,
+        including separators between blocks. Ranking metadata is returned beside
+        that text and is not itself charged against the budget.
+        """
+        query_terms, budget = self._validate_retrieval(query, max_tokens)
+        candidate_nodes, scored_nodes = self._score_candidates(
+            query,
+            query_terms,
+            use_semantic=use_semantic,
+        )
+        if not candidate_nodes:
+            return self._pack_payload(
+                query,
+                budget,
+                context="",
+                items=[],
+                relevant_files=[],
+                total_candidates=0,
+                summary="Graph contains no queryable source nodes.",
+            )
+
+        char_limit = budget * 4
+        remaining = char_limit
+        pieces: list[str] = []
+        items: list[dict[str, Any]] = []
+        relevant_files: list[str] = []
+        selected_spans: list[tuple[str, int, int]] = []
+
+        for index, (node_id, score) in enumerate(scored_nodes):
+            span = self._node_span(node_id)
+            if span is not None and any(
+                self._spans_nest(span, chosen) for chosen in selected_spans
+            ):
+                continue
+
+            block, block_path = self._render_node(node_id)
+            separator = 1 if pieces else 0
+            available = remaining - separator
+            if available <= 0:
+                break
+
+            truncated = False
+            if len(block) > available:
+                later = scored_nodes[index + 1 :]
+                if span is not None and any(
+                    self._strictly_contains(span, inner)
+                    for other_id, _other_score in later
+                    if (inner := self._node_span(other_id)) is not None
+                ):
+                    continue
+                if available <= len(_TRUNCATION_MARKER) + _MIN_TRUNCATED_BODY:
+                    continue
+                block = block[: available - len(_TRUNCATION_MARKER)].rstrip() + _TRUNCATION_MARKER
+                truncated = True
+            if not block.strip() or len(block) + separator > remaining:
+                continue
+
+            pieces.append(block)
+            remaining -= len(block) + separator
+            if span is not None:
+                selected_spans.append(span)
+            if block_path and block_path not in relevant_files:
+                relevant_files.append(block_path)
+
+            data = self.graph.nodes[node_id]
+            items.append(
+                {
+                    "rank": len(items) + 1,
+                    "id": node_id,
+                    "kind": str(data.get("type", "node")),
+                    "name": str(data.get("name", "")),
+                    "qualname": data.get("qualname"),
+                    "path": str(data.get("path", "")) or None,
+                    "language": data.get("language"),
+                    "lineno": data.get("lineno"),
+                    "end_lineno": data.get("end_lineno"),
+                    "score": round(score, 4),
+                    "estimated_tokens": math.ceil(len(block) / 4),
+                    "truncated": truncated,
+                }
+            )
+
+        context = "\n".join(pieces).strip()
+        summary = (
+            f"Graph: {self.graph.number_of_nodes()} nodes, "
+            f"{self.graph.number_of_edges()} edges; selected "
+            f"{len(items)} of {len(scored_nodes)} scored candidates."
+        )
+        return self._pack_payload(
+            query,
+            budget,
+            context=context,
+            items=items,
+            relevant_files=relevant_files,
+            total_candidates=len(scored_nodes),
+            summary=summary,
+        )
+
+    def _pack_payload(
+        self,
+        query: str,
+        budget: int,
+        *,
+        context: str,
+        items: list[dict[str, Any]],
+        relevant_files: list[str],
+        total_candidates: int,
+        summary: str,
+    ) -> dict[str, Any]:
+        return {
+            "query": query,
+            "budget": budget,
+            "estimated_tokens": math.ceil(len(context) / 4) if context else 0,
+            "total_candidates": total_candidates,
+            "relevant_files": relevant_files,
+            "items": items,
+            "context": context,
+            "graph_summary": summary,
+            "load_errors": list(self.load_errors),
+            "parse_errors": list(self.parse_errors),
+        }
+
     def query_context(
         self,
         query: str,
@@ -436,95 +708,17 @@ class CodeContextGraph:
         use_semantic: bool = False,
     ) -> dict[str, Any]:
         """Return scored source context constrained by an approximate token budget."""
-        if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens <= 0:
-            raise ValueError("max_tokens must be a positive integer greater than zero")
-        query_terms = _terms(query)
-        if not query_terms:
-            raise ValueError("query must contain at least one searchable term")
-
-        candidate_nodes = self._candidate_nodes()
-        if not candidate_nodes:
-            return {
-                "context": "",
-                "relevant_nodes": [],
-                "relevant_files": [],
-                "scores": {},
-                "estimated_tokens": 0,
-                "total_candidates": 0,
-                "graph_summary": "Graph contains no queryable source nodes.",
-            }
-
-        query_embedding = None
-        if use_semantic and self.semantic_enabled and self.model is not None:
-            self._compute_embeddings(candidate_nodes)
-            query_embedding = self.model.encode([query], convert_to_numpy=True)[0]
-
-        scored_nodes = [
-            (
-                node_id,
-                self._get_relevance_score(
-                    node_id,
-                    query,
-                    query_terms,
-                    query_embedding,
-                ),
-            )
-            for node_id in candidate_nodes
-        ]
-        scored_nodes = [item for item in scored_nodes if item[1] > 0]
-        scored_nodes.sort(
-            key=lambda item: (
-                item[1],
-                self.graph.nodes[item[0]].get("type") != "file",
-            ),
-            reverse=True,
-        )
-
-        char_limit = max_tokens * 4
-        remaining = char_limit
-        selected: list[tuple[str, float, str]] = []
-        selected_files: list[str] = []
-        symbol_paths: set[str] = set()
-
-        for node_id, score in scored_nodes:
-            data = self.graph.nodes[node_id]
-            path = str(data.get("path", ""))
-            if data.get("type") == "file" and path in symbol_paths:
-                continue
-
-            block, block_path = self._render_node(node_id)
-            separator = 1 if selected else 0
-            available = remaining - separator
-            if available < 80:
-                break
-            if len(block) > available:
-                marker = "\n... [truncated to token budget]\n"
-                block = block[: max(0, available - len(marker))].rstrip() + marker
-            if not block.strip():
-                continue
-
-            selected.append((node_id, score, block))
-            remaining -= len(block) + separator
-            if block_path and block_path not in selected_files:
-                selected_files.append(block_path)
-            if data.get("type") != "file" and path:
-                symbol_paths.add(path)
-
-        context = "\n".join(block for _, _, block in selected).strip()
+        packed = self.pack_context(query, max_tokens=max_tokens, use_semantic=use_semantic)
         result: dict[str, Any] = {
-            "context": context,
-            "relevant_nodes": [node_id for node_id, _, _ in selected],
-            "relevant_files": selected_files,
-            "scores": {node_id: round(score, 4) for node_id, score, _ in selected},
-            "estimated_tokens": math.ceil(len(context) / 4),
-            "total_candidates": len(scored_nodes),
+            "context": packed["context"],
+            "relevant_nodes": [item["id"] for item in packed["items"]],
+            "relevant_files": packed["relevant_files"],
+            "scores": {item["id"]: item["score"] for item in packed["items"]},
+            "estimated_tokens": packed["estimated_tokens"],
+            "total_candidates": packed["total_candidates"],
         }
         if include_graph_summary:
-            result["graph_summary"] = (
-                f"Graph: {self.graph.number_of_nodes()} nodes, "
-                f"{self.graph.number_of_edges()} edges; selected "
-                f"{len(selected)} of {len(scored_nodes)} scored candidates."
-            )
+            result["graph_summary"] = packed["graph_summary"]
         return result
 
     def get_graph_stats(self) -> dict[str, Any]:
@@ -538,5 +732,7 @@ class CodeContextGraph:
             "node_types": dict(sorted(type_counts.items())),
             "load_errors": len(self.load_errors),
             "parse_errors": len(self.parse_errors),
+            "load_error_messages": list(self.load_errors),
+            "parse_error_messages": list(self.parse_errors),
             "semantic_enabled": self.semantic_enabled,
         }
